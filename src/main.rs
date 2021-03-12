@@ -17,6 +17,13 @@ use nb::block;
 use one_wire_bus::OneWire;
 use stm32f1xx_hal::{delay::Delay, pac, prelude::*, timer::Timer};
 
+mod numpad;
+use numpad::*;
+mod patterns;
+
+
+// Combine all possible errors into one single Error
+
 macro_rules! build_error {
     ( $(($x:ident, $y:ty)),* $(,)? ) => {
 
@@ -48,10 +55,8 @@ build_error!(
     (Owb, one_wire_bus::OneWireError<Infallible>),
 );
 
-mod numpad;
-use numpad::*;
-mod patterns;
 
+/// Get the temperature probe connected on the given pin, if any
 fn get_temp_probe<T, U>(
     pin: T,
     delay: &mut U,
@@ -61,23 +66,31 @@ where
     T: InputPin<Error = Infallible> + OutputPin<Error = Infallible>,
     U: DelayMs<u16> + DelayUs<u16>,
 {
+    // initialise the OneWireBus
     let mut owb = OneWire::new(pin)?;
 
+    // find the device
     let mut devs = owb.devices(false, delay);
     let probe: Option<Ds18b20> = loop {
         match devs.next() {
+            // found a device on the bus
             Some(Ok(addr)) => {
                 writeln!(stdout, "addr: {:?}", addr)?;
+
+                // check if it's a temperature probe
                 match Ds18b20::new::<()>(addr) {
                     Ok(x) => break Some(x),
-                    Err(e) => {
-                        writeln!(stdout, "Ds::new     {:?}", e)?;
-                    }
+
+                    Err(e) => writeln!(stdout, "Ds::new     {:?}", e)?,
                 }
             }
+
+            // found a device but it errored
             Some(Err(e)) => {
                 writeln!(stdout, "devs.next   {:?}", e)?;
             }
+
+            // no more devices
             None => {
                 writeln!(stdout, "out of devices")?;
                 break None;
@@ -85,17 +98,26 @@ where
         }
     };
 
+    // if we found a probe
     if let Some(probe) = probe {
+        // start measurement
         probe.start_temp_measurement(&mut owb, delay)?;
         ds18b20::Resolution::Bits12.delay_for_measurement_time(delay);
+
         Ok(Some((probe, owb)))
+
     } else {
+        // release the bus again
         owb.release_bus()?;
+
         Ok(None)
     }
 }
 
+/// Wrapper around main which supports returning errors
 fn _main() -> Result<(), Error> {
+
+    // get access to all required peripherals
     let mut stdout = hio::hstdout()?;
     let core_peripherals = cortex_m::Peripherals::take()?;
     let dev_peripherals = pac::Peripherals::take()?;
@@ -109,6 +131,8 @@ fn _main() -> Result<(), Error> {
     let tim1 = Timer::tim1(dev_peripherals.TIM1, &clocks, &mut radio_clock.apb2);
     let tim2 = Timer::tim2(dev_peripherals.TIM2, &clocks, &mut radio_clock.apb1);
     let mut delay = Delay::new(core_peripherals.SYST, clocks);
+
+    // claim all GPIO pins
     let (pa15, _pb3, _pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
     let pa15 = pa15.into_open_drain_output(&mut gpioa.crh);
     let mut pc13 = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
@@ -119,8 +143,9 @@ fn _main() -> Result<(), Error> {
     let pb8 = gpiob.pb8.into_push_pull_output(&mut gpiob.crh);
     let pb7 = gpiob.pb7.into_push_pull_output(&mut gpiob.crl);
     let pb6 = gpiob.pb6.into_push_pull_output(&mut gpiob.crl);
-    let mut temp_probe = get_temp_probe(pa15, &mut delay, &mut stdout)?;
 
+    // get temperature probe
+    let mut temp_probe = get_temp_probe(pa15, &mut delay, &mut stdout)?;
 
     // get 4x4 numpad
     let mut numpad = {
@@ -131,18 +156,25 @@ fn _main() -> Result<(), Error> {
         Numpad::new(row_0, None, None, None, col_0, col_1, col_2, None)
     };
 
+    // get LED matrix
     let mut matrix = MAX7219::from_pins(
         /*displays*/ 1, /*data*/ pb7, /*cs*/ pb8, /*sck*/ pb6,
     )?;
 
+    // initial matrix state
     let mut pixels = patterns::Chess;
 
+    // start two countdowns
     let mut button_countdown = tim1.start_count_down(500.ms());
-    let mut main_countdown = tim2.start_count_down(1.hz());
+    let mut main_countdown = tim2.start_count_down(1000.ms());
 
+    // turn off the on-board led
     pc13.set_high()?;
 
+    // main loop
     loop {
+
+        // read the temperature sensor
         if let Some((ref probe, ref mut owb)) = temp_probe {
             let temp_sensor = probe.read_data(owb, &mut delay)?;
             write!(
@@ -152,17 +184,16 @@ fn _main() -> Result<(), Error> {
             )?;
         }
 
+        // read the numpad
         let buttons = numpad.read(&mut button_countdown);
-        write!(stdout, "buttons {:#06b}  ", buttons)?;
+        writeln!(stdout, "buttons {:#06b}  ", buttons)?;
 
-        matrix.power_on()?;
-        matrix.write_raw(0, &pixels)?;
-
+        // check which buttons are pressed
         let one = buttons & Buttons::One != 0;
         let two = buttons & Buttons::Two != 0;
         let three = buttons & Buttons::Three != 0;
-
         match (one, two, three) {
+
             // holding 1
             (true, false, false) => {
                 writeln!(stdout, "hold 1")?;
@@ -175,9 +206,15 @@ fn _main() -> Result<(), Error> {
                 pixels = patterns::Chess;
             }
 
+            // ignore other combinations
             _ => {}
         }
 
+        // write the pixels to the matrix
+        matrix.power_on()?;
+        matrix.write_raw(0, &pixels)?;
+
+        // wait before we loop
         block!(main_countdown.wait())?;
     }
 }
