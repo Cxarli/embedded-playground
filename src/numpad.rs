@@ -1,9 +1,9 @@
-use core::fmt::Debug;
+use core::convert::Infallible;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
-use nb::block;
-use stm32f1xx_hal::{pac, prelude::*, timer};
+use stm32f1xx_hal::gpio::{Input, Output, PullDown, PushPull, Pxx};
 
 pub struct Buttons {
+    /// make sure it can't be constructed
     _p: (),
 }
 pub type Button = u16;
@@ -26,195 +26,81 @@ impl Buttons {
     pub const Nine: Button = 1 << 10;
     pub const C: Button = 1 << 11;
 
-    pub const Asterisk: Button = 1 << 12;
+    pub const Star: Button = 1 << 12;
     pub const Zero: Button = 1 << 13;
-    pub const Octothorpe: Button = 1 << 14;
+    pub const Hash: Button = 1 << 14;
     pub const D: Button = 1 << 15;
 }
 
-pub struct Numpad<I: InputPin, O: OutputPin> {
-    r0: Option<O>,
-    r1: Option<O>,
-    r2: Option<O>,
-    r3: Option<O>,
-    c0: Option<I>,
-    c1: Option<I>,
-    c2: Option<I>,
-    c3: Option<I>,
+/// The layout of the numpad
+const LAYOUT: [[Button; 4]; 4] = [
+    [Buttons::One, Buttons::Two, Buttons::Three, Buttons::A],
+    [Buttons::Four, Buttons::Five, Buttons::Six, Buttons::B],
+    [Buttons::Seven, Buttons::Eight, Buttons::Nine, Buttons::C],
+    [Buttons::Star, Buttons::Zero, Buttons::Hash, Buttons::D],
+];
+
+type Out = Option<Pxx<Output<PushPull>>>;
+type In = Option<Pxx<Input<PullDown>>>;
+
+pub struct Numpad {
+    rows: [Out; 4],
+    cols: [In; 4],
 }
 
-impl<I: InputPin, O: OutputPin> Numpad<I, O>
-where
-    I::Error: Debug,
-    O::Error: Debug,
-{
-    pub fn new(
-        r0: Option<O>,
-        r1: Option<O>,
-        r2: Option<O>,
-        r3: Option<O>,
-        c0: Option<I>,
-        c1: Option<I>,
-        c2: Option<I>,
-        c3: Option<I>,
-    ) -> Self {
-        let mut new = Self {
-            r0,
-            r1,
-            r2,
-            r3,
-            c0,
-            c1,
-            c2,
-            c3,
-        };
-        new.init();
-        new
+impl Numpad {
+    /// Create a new Numpad
+    pub fn new<E: From<Infallible>>(mut rows: [Out; 4], cols: [In; 4]) -> Result<Self, E> {
+        // Set all outputs low
+        #[allow(clippy::manual_flatten)]
+        for pin in rows.iter_mut() {
+            if let Some(r) = pin {
+                r.set_low()?;
+            }
+        }
+
+        Ok(Self { rows, cols })
     }
 
-    fn init(&mut self) {
-        if let Some(ref mut r) = self.r0 {
-            r.set_low().unwrap();
-        }
-        if let Some(ref mut r) = self.r1 {
-            r.set_low().unwrap();
-        }
-        if let Some(ref mut r) = self.r2 {
-            r.set_low().unwrap();
-        }
-        if let Some(ref mut r) = self.r3 {
-            r.set_low().unwrap();
-        }
-    }
-
-    fn scan_row(
+    /// Get all active buttons on the given row index
+    fn scan_row<E: From<Infallible>>(
         &mut self,
-        row: u8,
-        timer: &mut timer::CountDownTimer<pac::TIM1>,
+        row: usize,
         row_buttons: [Button; 4],
-    ) -> Button {
+    ) -> Result<Button, E> {
+        // Get the current row
+        let row = &mut self.rows[row];
+        if row.is_none() {
+            return Ok(Buttons::None);
+        }
+        let row = row.as_mut().unwrap();
+
+        // Enable the row
+        row.set_high()?;
+
+        // Check all columns
         let mut buttons = Buttons::None;
-
-        match row {
-            0 => {
-                if let Some(ref mut r) = self.r0 {
-                    r.set_high().unwrap();
-                } else {
-                    return buttons;
+        for (i, col) in self.cols.iter_mut().enumerate() {
+            if let Some(ref mut c) = col {
+                if c.is_high().unwrap_or(false) {
+                    buttons |= row_buttons[i];
                 }
-            }
-
-            1 => {
-                if let Some(ref mut r) = self.r1 {
-                    r.set_high().unwrap();
-                } else {
-                    return buttons;
-                }
-            }
-
-            2 => {
-                if let Some(ref mut r) = self.r2 {
-                    r.set_high().unwrap();
-                } else {
-                    return buttons;
-                }
-            }
-
-            3 => {
-                if let Some(ref mut r) = self.r3 {
-                    r.set_high().unwrap();
-                } else {
-                    return buttons;
-                }
-            }
-
-            _ => panic!(),
-        };
-
-        timer.start(500.ms());
-        block!(timer.wait()).unwrap();
-
-        if let Some(ref mut c) = self.c0 {
-            if c.is_high().unwrap_or(false) {
-                buttons |= row_buttons[0];
-            }
-        }
-        if let Some(ref mut c) = self.c1 {
-            if c.is_high().unwrap_or(false) {
-                buttons |= row_buttons[1];
-            }
-        }
-        if let Some(ref mut c) = self.c2 {
-            if c.is_high().unwrap_or(false) {
-                buttons |= row_buttons[2];
-            }
-        }
-        if let Some(ref mut c) = self.c3 {
-            if c.is_high().unwrap_or(false) {
-                buttons |= row_buttons[3];
             }
         }
 
-        match row {
-            0 => {
-                if let Some(ref mut r) = self.r0 {
-                    r.set_low().unwrap();
-                }
-            }
+        // Reset row
+        row.set_low()?;
 
-            1 => {
-                if let Some(ref mut r) = self.r1 {
-                    r.set_low().unwrap();
-                }
-            }
-
-            2 => {
-                if let Some(ref mut r) = self.r2 {
-                    r.set_low().unwrap();
-                }
-            }
-
-            3 => {
-                if let Some(ref mut r) = self.r3 {
-                    r.set_low().unwrap();
-                }
-            }
-
-            _ => panic!(),
-        };
-
-        buttons
+        Ok(buttons)
     }
 
-    pub fn read(&mut self, countdown: &mut timer::CountDownTimer<pac::TIM1>) -> Button {
+    /// Read the entire numpad
+    pub fn read<E: From<Infallible>>(&mut self) -> Result<Button, E> {
         let mut buttons = Buttons::None;
+        for (i, &layout) in LAYOUT.iter().enumerate() {
+            buttons |= self.scan_row(i, layout)?;
+        }
 
-        buttons |= self.scan_row(
-            0,
-            countdown,
-            [Buttons::One, Buttons::Two, Buttons::Three, Buttons::A],
-        );
-        buttons |= self.scan_row(
-            1,
-            countdown,
-            [Buttons::Four, Buttons::Five, Buttons::Six, Buttons::B],
-        );
-        buttons |= self.scan_row(
-            2,
-            countdown,
-            [Buttons::Seven, Buttons::Eight, Buttons::Nine, Buttons::C],
-        );
-        buttons |= self.scan_row(
-            3,
-            countdown,
-            [
-                Buttons::Asterisk,
-                Buttons::Zero,
-                Buttons::Octothorpe,
-                Buttons::D,
-            ],
-        );
-
-        buttons
+        Ok(buttons)
     }
 }

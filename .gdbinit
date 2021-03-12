@@ -14,6 +14,8 @@ monitor arm semihosting enable
 # # enable ITM port 0
 # monitor itm port 0 on
 
+set remotetimeout 5
+
 load
 step
 
