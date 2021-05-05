@@ -1,3 +1,4 @@
+
 #![deny(unsafe_code)]
 #![no_std]
 #![no_main]
@@ -12,14 +13,14 @@ use cortex_m_semihosting::hio;
 use ds18b20::Ds18b20;
 use embedded_hal::blocking::delay::{DelayMs, DelayUs};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
-use max7219::MAX7219;
+// use max7219::MAX7219;
 use nb::block;
 use one_wire_bus::OneWire;
-use stm32f1xx_hal::{delay::Delay, pac, prelude::*, timer::Timer};
+use stm32f1xx_hal::{/*delay::Delay,*/ pac, prelude::*, timer::Timer};
 
-mod numpad;
-use numpad::*;
-mod patterns;
+// mod numpad;
+// use numpad::*;
+// mod patterns;
 
 // Combine all possible errors into one single Error
 
@@ -55,7 +56,7 @@ build_error!(
 );
 
 /// Get the temperature probe connected on the given pin, if any
-fn get_temp_probe<T, U>(
+fn _get_temp_probe<T, U>(
     pin: T,
     delay: &mut U,
     stdout: &mut hio::HStdout,
@@ -141,19 +142,19 @@ impl Debug for Bitstring {
 fn _main() -> Result<(), Error> {
     // get access to all required peripherals
     let mut stdout = hio::hstdout()?;
-    let core_peripherals = cortex_m::Peripherals::take()?;
+    // let core_peripherals = cortex_m::Peripherals::take()?;
     let dev_peripherals = pac::Peripherals::take()?;
     let mut flash = dev_peripherals.FLASH.constrain();
     let mut radio_clock = dev_peripherals.RCC.constrain();
     let clocks = radio_clock.cfgr.freeze(&mut flash.acr);
-    let mut afio = dev_peripherals.AFIO.constrain(&mut radio_clock.apb2);
-    let mut gpioa = dev_peripherals.GPIOA.split(&mut radio_clock.apb2);
+    // let mut afio = dev_peripherals.AFIO.constrain(&mut radio_clock.apb2);
+    // let mut gpioa = dev_peripherals.GPIOA.split(&mut radio_clock.apb2);
     let mut gpiob = dev_peripherals.GPIOB.split(&mut radio_clock.apb2);
     let mut gpioc = dev_peripherals.GPIOC.split(&mut radio_clock.apb2);
     let tim2 = Timer::tim2(dev_peripherals.TIM2, &clocks, &mut radio_clock.apb1);
     let mut main_countdown = tim2.start_count_down(100.ms());
-    let mut delay = Delay::new(core_peripherals.SYST, clocks);
-    let (pa15, pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
+    // let mut delay = Delay::new(core_peripherals.SYST, clocks);
+    // let (pa15, pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
 
     /*
@@ -209,40 +210,95 @@ fn _main() -> Result<(), Error> {
     let mut pc13 = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
     // numpad
+    /*
     let pa15 = pa15.into_push_pull_output(&mut gpioa.crh);
     let pb3 = pb3.into_pull_down_input(&mut gpiob.crl);
     let pb4 = pb4.into_pull_down_input(&mut gpiob.crl);
     let pb5 = gpiob.pb5.into_pull_down_input(&mut gpiob.crl);
+    */
 
     // temp probe
-    let pb12 = gpiob.pb12.into_open_drain_output(&mut gpiob.crh);
-    let mut temp_probe = get_temp_probe(pb12, &mut delay, &mut stdout)?;
+    // let pb12 = gpiob.pb12.into_open_drain_output(&mut gpiob.crh);
+    // let mut temp_probe = get_temp_probe(pb12, &mut delay, &mut stdout)?;
 
     // matrix
+    /*
     let pb8 = gpiob.pb8.into_push_pull_output(&mut gpiob.crh);
     let pb7 = gpiob.pb7.into_push_pull_output(&mut gpiob.crl);
     let pb6 = gpiob.pb6.into_push_pull_output(&mut gpiob.crl);
+    */
 
     // get 4x4 numpad
-    let mut numpad = {
+    /* let mut numpad = {
         let row_0 = Some(pa15.downgrade());
         let col_0 = Some(pb3.downgrade());
         let col_1 = Some(pb4.downgrade());
         let col_2 = Some(pb5.downgrade());
         Numpad::new::<Error>([row_0, None, None, None], [col_0, col_1, col_2, None])?
-    };
+    }; */
 
     // get LED matrix
-    let mut matrix = MAX7219::from_pins(
+    /* let mut matrix = MAX7219::from_pins(
         /*displays*/ 1, /*data*/ pb7, /*cs*/ pb8, /*sck*/ pb6,
-    )?;
+    )?; */
 
     // initial matrix state
-    let mut pixels = patterns::Chess;
+    // let mut pixels = patterns::Chess;
 
     // turn off the on-board led
-    pc13.set_high()?;
+    pc13.set_low()?;
 
+
+
+    let mut pb12 = gpiob.pb12.into_push_pull_output(&mut gpiob.crh);
+    pb12.set_low()?;
+
+
+    macro_rules! write_byte {
+        ($byte: expr) => {
+            let mut b = $byte;
+
+            write!(stdout, "{} {:0x}\n", b as char, b)?;
+
+            for _ in 1..=8 {
+                if b & (1 << 7) != 0 {
+                    pb12.set_high()?;
+                } else {
+                    pb12.set_low()?;
+                }
+
+                b <<= 1;
+
+                block!(main_countdown.wait())?;
+            }
+
+            pb12.set_low()?;
+            block!(main_countdown.wait())?;
+        }
+    }
+
+    loop {
+        write!(stdout, "Waiting...\n")?;
+        pb12.set_low()?;
+        for _ in 1..=32 {
+            block!(main_countdown.wait())?;
+        }
+
+        write!(stdout, "Timing...\n")?;
+        for _ in 1..=4 {
+            pb12.set_high()?;
+            block!(main_countdown.wait())?;
+            pb12.set_low()?;
+            block!(main_countdown.wait())?;
+        }
+
+        write!(stdout, "Writing...\n")?;
+        for c in "Hello World!".bytes() {
+            write_byte!(c);
+        }
+    }
+
+    /*
     // main loop
     loop {
         // read the temperature sensor
@@ -287,6 +343,7 @@ fn _main() -> Result<(), Error> {
         // wait before we loop
         block!(main_countdown.wait())?;
     }
+    */
 }
 
 #[entry]
