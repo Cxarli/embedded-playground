@@ -5,12 +5,20 @@
 #![feature(try_trait)]
 #![allow(unused_imports, unused_mut, unused_variables)]
 
+#[cfg(feature="semi")]
 extern crate panic_semihosting;
+#[cfg(feature="semi")]
+use cortex_m_semihosting::hio;
+
+#[cfg(not(feature="semi"))]
+#[panic_handler]
+fn panic_handler(_: &core::panic::PanicInfo) -> ! {
+    loop {}
+}
 
 use core::convert::Infallible;
 use core::fmt::{Debug, Write};
 use cortex_m_rt::entry;
-use cortex_m_semihosting::hio;
 use max7219::MAX7219;
 use nb::block;
 use embedded_hal::digital::v2::OutputPin;
@@ -54,6 +62,7 @@ build_error!(
 
 /// Wrapper around main which supports returning errors
 fn _main() -> Result<(), Error> {
+    #[cfg(feature="semi")]
     // connect stdout
     let mut stdout = hio::hstdout()?;
 
@@ -64,7 +73,7 @@ fn _main() -> Result<(), Error> {
     let clocks = radio_clock.cfgr.freeze(&mut flash.acr);
     let tim2 = timer::Timer::tim2(dev_peripherals.TIM2, &clocks, &mut radio_clock.apb1);
     let tim3 = timer::Timer::tim3(dev_peripherals.TIM3, &clocks, &mut radio_clock.apb1);
-    let mut main_countdown = tim2.start_count_down(300.ms());
+    let mut main_countdown = tim2.start_count_down(400.ms());
     
     // connect gpio
     let mut gpiob = dev_peripherals.GPIOB.split(&mut radio_clock.apb2);
@@ -83,38 +92,48 @@ fn _main() -> Result<(), Error> {
         /* cs = chip select */ pb4,
         /* sck = clock */      pb8,
     )?;
-
-    write!(stdout, "Preparing... ")?;
-    for _ in 0..=9 {
-        block!(main_countdown.wait())?;
-    }
-    write!(stdout, "Go!\n")?;
-
     matrix.power_on()?;
-    block!(main_countdown.wait())?;
 
+    /*
     // speaker
     let mut pa6 = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);
     let mut speaker = tim3.pwm(pa6, &mut afio.mapr, 300.ms());
-
-    // Start using the channels
     speaker.set_duty(pwm::Channel::C1, speaker.get_max_duty());
     speaker.enable(pwm::Channel::C1);
+    */
     
     // initial matrix state
     let text = {
         use patterns::*;
-        [&h, &e, &l, &l, &o, &comma, &w, &o, &r, &l, &d, &excl, &blank, &blank]
+
+        #[cfg(feature="semi")]
+        let res = [merge(&s, &e), merge35(&e3, &m5), merge53(&m5, &i3), merge(&i, &blank), merge(&blank, &blank), merge(&blank, &s)];
+        
+        #[cfg(not(feature="semi"))]
+        let res = [&C, &h, &a, &r, &l, &i, &e, &blank, &blank];
+        // let res = [&h, &e, &l, &l, &o, &comma, &w, &o, &r, &l, &d, &excl, &blank, &blank];
+
+        res
     };
     let mut i = 0;
     
+    #[cfg(feature="semi")]
+    write!(stdout, "Hello, world!\n")?;
+
     // main loop
     loop {
-        // write!(stdout, "hi\n")?;
 
-        let cur = text[i];
-        let next = if i < text.len() - 1 { text[i + 1] } else { text[0] };
-        matrix.write_raw(0, &patterns::merge(cur, next))?;
+        #[cfg(feature="semi")]
+        {
+            matrix.write_raw(0, &text[i])?;
+        }
+
+        #[cfg(not(feature="semi"))]
+        {
+            let cur = text[i];
+            let next = if i < text.len() - 1 { text[i + 1] } else { text[0] };
+            matrix.write_raw(0, &patterns::merge(cur, next))?;
+        }
 
         i = (i + 1) % text.len();
 
