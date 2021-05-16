@@ -6,6 +6,30 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "embedded_pg"
+path = "src/lib.rs"
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[[bin]]
+name = "pin_tester"
+path = "src/bins/pin_tester.rs"
+
+[[bin]]
+name = "writer"
+path = "src/bins/writer.rs"
+
+[[bin]]
+name = "numpad"
+path = "src/bins/numpad.rs"
+
+[[bin]]
+name = "temp"
+path = "src/bins/temp.rs"
+
 [dependencies]
 embedded-hal = { version = "0.2.3", default_features = false, features = ["unproven"] }
 nb = "1.0.0"
