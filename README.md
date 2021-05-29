@@ -1,5 +1,7 @@
 # embedded-playground
 
+<img src="https://github.com/Cxarli/embedded-playground/raw/main/rust-embedded.png" alt="icon">
+
 A (small) playground project where I explore embedded software development in Rust.
 
 ## Hardware
