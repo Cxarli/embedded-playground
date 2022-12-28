@@ -44,7 +44,6 @@ build_error!(
     (I2c, stm32f1xx_hal::i2c::Error),
 );
 
-
 fn _main() -> Result<(), Error> {
     // get access to all required peripherals
     let mut stdout = hio::hstdout()?;
@@ -59,7 +58,6 @@ fn _main() -> Result<(), Error> {
 
     let mut pb12 = gpiob.pb12.into_push_pull_output(&mut gpiob.crh);
     pb12.set_low()?;
-
 
     macro_rules! write_byte {
         ($byte: expr) => {
@@ -81,7 +79,7 @@ fn _main() -> Result<(), Error> {
 
             pb12.set_low()?;
             block!(main_countdown.wait())?;
-        }
+        };
     }
 
     loop {

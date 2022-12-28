@@ -1,4 +1,3 @@
-
 #![deny(unsafe_code)]
 #![no_std]
 #![no_main]
@@ -48,7 +47,6 @@ build_error!(
     (I2c, stm32f1xx_hal::i2c::Error),
     (Owb, one_wire_bus::OneWireError<Infallible>),
 );
-
 
 /// Get the temperature probe connected on the given pin, if any
 fn get_temp_probe<T, U>(
@@ -106,7 +104,6 @@ where
         Ok(None)
     }
 }
-
 
 /// Wrapper around main which supports returning errors
 fn _main() -> Result<(), Error> {

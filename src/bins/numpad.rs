@@ -1,4 +1,3 @@
-
 #![deny(unsafe_code)]
 #![no_std]
 #![no_main]
@@ -117,7 +116,7 @@ struct Bitstring {
 }
 
 impl core::iter::FromIterator<bool> for Bitstring {
-    fn from_iter<I: IntoIterator<Item=bool>>(i: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = bool>>(i: I) -> Self {
         let mut val = 0;
         let mut size = 0;
 
@@ -153,7 +152,7 @@ fn _main() -> Result<(), Error> {
     let tim2 = Timer::tim2(dev_peripherals.TIM2, &clocks, &mut radio_clock.apb1);
     let mut main_countdown = tim2.start_count_down(100.ms());
     // let mut delay = Delay::new(core_peripherals.SYST, clocks);
-    
+
     let (pa15, pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
     // claim all GPIO pins
@@ -196,7 +195,6 @@ fn _main() -> Result<(), Error> {
 
     // main loop
     loop {
-
         // read the numpad
         let buttons = numpad.read::<Error>()?;
         writeln!(stdout, "buttons {:#06b}  ", 0x000f & buttons)?;

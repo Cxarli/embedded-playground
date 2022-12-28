@@ -2,7 +2,7 @@
 name = "embedded-playground"
 version = "0.1.0"
 authors = ["Cxarli <10348289+Cxarli@users.noreply.github.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -34,12 +34,12 @@ name = "temp"
 path = "src/bins/temp.rs"
 
 [dependencies]
-embedded-hal = { version = "0.2.3", default_features = false, features = ["unproven"] }
+embedded-hal = { version = "0.2.3", default-features = false, features = ["unproven"] }
 nb = "1.0.0"
 cortex-m = "0.7.1"
 cortex-m-rt = "0.6.13"
 cortex-m-semihosting = "0.3.7"
-void = { version = "1.0.2", default_features = false }
+void = { version = "1.0.2", default-features = false }
 max7219 = "0.3.0"
 ds18b20 = "0.1.1"
 stm32f1xx-hal = { version = "0.7.0", features = ["rt", "stm32f103", "medium"] }
