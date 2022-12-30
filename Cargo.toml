@@ -45,6 +45,7 @@ ds18b20 = "0.1.1"
 stm32f1xx-hal = { version = "0.7.0", features = ["rt", "stm32f103", "medium"] }
 one-wire-bus = "0.1.1"
 panic-semihosting = "0.5.6"
+lcd_1602_i2c = "0.3.0"
 
 [profile.dev]
 codegen-units = 1

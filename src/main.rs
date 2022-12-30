@@ -22,7 +22,8 @@ use cortex_m_rt::entry;
 use embedded_hal::digital::v2::OutputPin;
 use max7219::MAX7219;
 use nb::block;
-use stm32f1xx_hal::{pac, prelude::*, pwm, timer};
+use stm32f1xx_hal::{pac, prelude::*, i2c, pwm, timer};
+use lcd_1602_i2c::{self, Lcd};
 
 mod patterns;
 
@@ -50,27 +51,39 @@ macro_rules! build_error {
 
 build_error!(
     (Unit, ()),
+    (Str, &'static str),
     (Void, void::Void),
     (Fmt, core::fmt::Error),
     (Infallible, Infallible),
     (I2c, stm32f1xx_hal::i2c::Error),
     (Max7219, max7219::DataError),
     (Owb, one_wire_bus::OneWireError<Infallible>),
+    (Nb, nb::Error<stm32f1xx_hal::i2c::Error>),
 );
 
 /// Wrapper around main which supports returning errors
-fn _main() -> core::result::Result<(), Error> {
+fn _main() -> Result<(), Error> {
     #[cfg(feature = "semi")]
     // connect stdout
     let mut stdout = hio::hstdout()?;
+    #[cfg(feature = "semi")]
+    write!(stdout, "Hello, world!\n")?;
 
-    // start timer
+    // get system handles
     let dev_peripherals = pac::Peripherals::take().ok_or(())?;
+    let mut core_peripherals = cortex_m::Peripherals::take().unwrap();
     let mut flash = dev_peripherals.FLASH.constrain();
     let mut radio_clock = dev_peripherals.RCC.constrain();
+    
+    core_peripherals.DCB.enable_trace();
+    core_peripherals.DWT.enable_cycle_counter();
+    
     let clocks = radio_clock.cfgr.freeze(&mut flash.acr);
+    let mut delay = stm32f1xx_hal::delay::Delay::new(core_peripherals.SYST, clocks);
     let tim2 = timer::Timer::tim2(dev_peripherals.TIM2, &clocks, &mut radio_clock.apb1);
     let tim3 = timer::Timer::tim3(dev_peripherals.TIM3, &clocks, &mut radio_clock.apb1);
+
+    // start timer
     let mut main_countdown = tim2.start_count_down(150.ms());
 
     // connect gpio
@@ -78,6 +91,107 @@ fn _main() -> core::result::Result<(), Error> {
     let mut afio = dev_peripherals.AFIO.constrain(&mut radio_clock.apb2);
     let mut gpioa = dev_peripherals.GPIOA.split(&mut radio_clock.apb2);
     let (_pa15, _pb3, pb4) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
+
+    // build LCD over I2C
+    let pb11 = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh); // green
+    let pb10 = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh); // orange
+    
+    let mut bus = i2c::BlockingI2c::i2c2(
+        dev_peripherals.I2C2,
+        (/* sck = clock */ pb10, /* data = sda/sdi */ pb11),
+        i2c::Mode::Standard {
+            frequency: 200_000.hz(),
+        },
+        clocks,
+        &mut radio_clock.apb1,
+        /* start_timeout_us */
+        1000,
+        /* start_retries */
+        10,
+        /* addr_timeout_us */
+        1000,
+        /* data_timeout_us */
+        1000,
+    );
+
+    // let mut lcd = Lcd::new(bus, 0x27, 0x20, &mut delay)?;
+    // lcd.set_cursor(lcd_1602_i2c::Cursor::On)?;
+    // lcd.write_str("Hello world!")?;
+
+
+    let addr = 0x27;
+
+    for _ in 0..=3 {
+        // Function set: 8-bit, 2-line, 5x8 pixels
+        #[cfg(feature = "semi")]
+        write!(stdout, "function set\n")?;
+        bus.write(addr, &[0b_00_1_110_00])?;
+        delay.delay_ms(100u16);
+    }
+
+    #[cfg(feature = "semi")]
+    write!(stdout, "busy flag\n")?;
+    let mut buffer: [u8; 1] = [0u8];
+    bus.write_read(addr, &[], &mut buffer)?;
+    #[cfg(feature = "semi")]
+    write!(stdout, "ret: {:08b}\n", buffer[0])?;
+    
+    // Display On
+    #[cfg(feature = "semi")]
+    write!(stdout, "display on\n")?;
+    bus.write(addr, &[0b_00001_100])?;
+    delay.delay_ms(100u16);
+
+    // Clear display
+    #[cfg(feature = "semi")]
+    write!(stdout, "clear display\n")?;
+    bus.write(addr, &[0b_0000000_1])?;
+    delay.delay_ms(100u16);
+
+    // display on
+    #[cfg(feature = "semi")]
+    write!(stdout, "display on\n")?;
+    bus.write(addr, &[0b_00001_100])?;
+    delay.delay_ms(100u16);
+
+    // Entry Mode
+    #[cfg(feature = "semi")]
+    write!(stdout, "entry mode\n")?;
+    bus.write(addr, &[0b_000001_11])?;
+    delay.delay_ms(100u16);
+
+    // display on
+    #[cfg(feature = "semi")]
+    write!(stdout, "display on\n")?;
+    bus.write(addr, &[0b_00001_100])?;
+    delay.delay_ms(100u16);
+
+    // #[cfg(feature = "semi")]
+    // write!(stdout, "set ddram 11\n")?;
+    // bus.write(addr, &[0b_1_1000010])?;
+    // delay.delay_ms(100u16);
+
+    // #[cfg(feature = "semi")]
+    // write!(stdout, "set ddram 10\n")?;
+    // bus.write(addr, &[0b_1_1000000])?;
+    // delay.delay_ms(100u16);
+
+    // #[cfg(feature = "semi")]
+    // write!(stdout, "set ddram 01\n")?;
+    // bus.write(addr, &[0b_1_0000010])?;
+    // delay.delay_ms(100u16);
+
+    #[cfg(feature = "semi")]
+    write!(stdout, "write character\n")?;
+    // Write character 'f'
+    bus.write(addr, &[0b_01100110])?;
+    delay.delay_ms(100u16);
+
+    // display on
+    #[cfg(feature = "semi")]
+    write!(stdout, "display on\n")?;
+    bus.write(addr, &[0b_00001_100])?;
+    delay.delay_ms(100u16);
 
     // build matrix
     let pb9 = gpiob.pb9.into_push_pull_output(&mut gpiob.crh); // green
@@ -88,18 +202,14 @@ fn _main() -> core::result::Result<(), Error> {
         /* sck = clock */ pb8,
     )?;
     matrix.power_on()?;
+    matrix_fun(&mut matrix, &mut main_countdown)
+}
 
-    /*
-    // speaker
-    let mut pa6 = gpioa.pa6.into_alternate_push_pull(&mut gpioa.crl);
-    let mut speaker = tim3.pwm(pa6, &mut afio.mapr, 300.ms());
-    speaker.set_duty(pwm::Channel::C1, speaker.get_max_duty());
-    speaker.enable(pwm::Channel::C1);
-    */
 
-    #[cfg(feature = "semi")]
-    write!(stdout, "Hello, world!\n")?;
-
+fn matrix_fun<T: max7219::connectors::Connector>(
+    matrix: &mut MAX7219<T>,
+    main_countdown: &mut stm32f1xx_hal::timer::CountDownTimer<stm32f1xx_hal::pac::TIM2>,
+) -> Result<(), Error> {
     struct Text<const N: usize> {
         seq: [u8; N],
     }
@@ -271,5 +381,5 @@ fn _main() -> core::result::Result<(), Error> {
 #[entry]
 fn main() -> ! {
     _main().unwrap();
-    panic!()
+    panic!("main should never end")
 }
